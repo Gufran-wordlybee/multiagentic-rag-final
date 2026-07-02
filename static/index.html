@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MultiAgentic RAG — Document Q&amp;A</title>
+<style>
+  :root {
+    --ink: #1c2321;
+    --paper: #eee9df;
+    --paper-raised: #f7f4ec;
+    --rule: #c9c2af;
+    --moss: #3c6e52;
+    --moss-dim: #6b8f7a;
+    --clay: #a3401f;
+    --mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+    --serif: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    min-height: 100vh;
+    background-image:
+      repeating-linear-gradient(180deg, transparent, transparent 27px, rgba(28,35,33,0.035) 28px);
+  }
+
+  .frame {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 28px 24px 60px;
+  }
+
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 14px;
+    margin-bottom: 22px;
+  }
+
+  .brand {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--moss);
+  }
+
+  h1 {
+    font-size: 26px;
+    font-weight: 600;
+    margin: 4px 0 0;
+    letter-spacing: -0.01em;
+  }
+
+  .index-tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink);
+    opacity: 0.55;
+    text-align: right;
+    line-height: 1.5;
+  }
+
+  /* --- Upload panel (signature element: the "scan" strip) --- */
+  #upload-panel {
+    background: var(--paper-raised);
+    border: 1px solid var(--rule);
+    padding: 22px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  #upload-panel::before {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; top: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--moss) 0%, var(--moss) var(--scan, 0%), transparent var(--scan, 0%));
+    transition: width 0.2s linear;
+  }
+
+  .drop-zone {
+    border: 1.5px dashed var(--rule);
+    padding: 34px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--moss);
+    background: rgba(60,110,82,0.06);
+  }
+  .drop-zone .glyph {
+    font-family: var(--mono);
+    font-size: 28px;
+    color: var(--moss-dim);
+    margin-bottom: 8px;
+  }
+  .drop-zone .label {
+    font-size: 15px;
+  }
+  .drop-zone .sub {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink);
+    opacity: 0.55;
+    margin-top: 6px;
+  }
+  input[type=file] { display: none; }
+
+  .status-line {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    margin-top: 14px;
+    display: none;
+    align-items: center;
+    gap: 8px;
+  }
+  .status-line.visible { display: flex; }
+  .status-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--moss-dim);
+  }
+  .status-dot.busy { background: var(--clay); animation: pulse 1s infinite ease-in-out; }
+  .status-dot.ready { background: var(--moss); }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.35;} }
+
+  /* --- Chat --- */
+  #chat-panel { display: none; margin-top: 22px; }
+  #chat-panel.visible { display: block; }
+
+  .doc-strip {
+    font-family: var(--mono);
+    font-size: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 2px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 16px;
+    color: var(--ink);
+    opacity: 0.75;
+  }
+  .doc-strip button {
+    font-family: var(--mono);
+    background: none;
+    border: 1px solid var(--rule);
+    color: var(--ink);
+    font-size: 11px;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .doc-strip button:hover { border-color: var(--clay); color: var(--clay); }
+
+  #messages {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 200px;
+    margin-bottom: 16px;
+  }
+
+  .msg { max-width: 100%; }
+  .msg .role {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    opacity: 0.5;
+    margin-bottom: 4px;
+  }
+  .msg.user .role { color: var(--clay); }
+  .msg.assistant .role { color: var(--moss); }
+  .msg .body {
+    font-size: 16px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+  }
+  .msg.user .body {
+    background: var(--paper-raised);
+    border-left: 2px solid var(--clay);
+    padding: 10px 14px;
+  }
+  .msg.assistant .body {
+    border-left: 2px solid var(--moss);
+    padding: 10px 14px;
+  }
+
+  .retry-box {
+    font-family: var(--mono);
+    font-size: 12px;
+    border: 1px solid var(--clay);
+    background: rgba(163,64,31,0.06);
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .retry-box button {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    padding: 6px 12px;
+    border: 1px solid var(--ink);
+    background: var(--paper);
+    cursor: pointer;
+  }
+  .retry-box button.primary { background: var(--clay); color: var(--paper-raised); border-color: var(--clay); }
+
+  form#chat-form {
+    display: flex;
+    gap: 10px;
+    border-top: 2px solid var(--ink);
+    padding-top: 14px;
+  }
+  #chat-input {
+    flex: 1;
+    font-family: var(--serif);
+    font-size: 15px;
+    padding: 10px 12px;
+    border: 1px solid var(--rule);
+    background: var(--paper-raised);
+    color: var(--ink);
+    resize: none;
+  }
+  #chat-input:focus { outline: none; border-color: var(--moss); }
+  #chat-form button {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 0 20px;
+    border: 1px solid var(--ink);
+    background: var(--ink);
+    color: var(--paper);
+    cursor: pointer;
+  }
+  #chat-form button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .error-banner {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--clay);
+    border: 1px solid var(--clay);
+    padding: 10px 14px;
+    margin-top: 12px;
+    display: none;
+  }
+  .error-banner.visible { display: block; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .status-dot.busy { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="frame">
+  <header>
+    <div>
+      <div class="brand">MultiAgentic·RAG</div>
+      <h1>Ask your document</h1>
+    </div>
+    <div class="index-tag">router → planner<br/>→ retrieve → verify</div>
+  </header>
+
+  <section id="upload-panel">
+    <div class="drop-zone" id="drop-zone">
+      <div class="glyph">⌗</div>
+      <div class="label">Drop a PDF here, or click to choose one</div>
+      <div class="sub">indexed on-device into an isolated, private session · max 25&nbsp;MB</div>
+      <input type="file" id="file-input" accept="application/pdf" />
+    </div>
+    <div class="status-line" id="status-line">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text"></span>
+    </div>
+  </section>
+
+  <div class="error-banner" id="error-banner"></div>
+
+  <section id="chat-panel">
+    <div class="doc-strip">
+      <span id="doc-name"></span>
+      <button id="new-doc-btn">Upload a different PDF</button>
+    </div>
+    <div id="messages"></div>
+    <form id="chat-form">
+      <textarea id="chat-input" rows="1" placeholder="Ask something about this document…"></textarea>
+      <button type="submit" id="send-btn">Ask</button>
+    </form>
+  </section>
+</div>
+
+<script>
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const statusLine = document.getElementById('status-line');
+const statusDot = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
+const uploadPanel = document.getElementById('upload-panel');
+const chatPanel = document.getElementById('chat-panel');
+const messagesEl = document.getElementById('messages');
+const chatForm = document.getElementById('chat-form');
+const chatInput = document.getElementById('chat-input');
+const sendBtn = document.getElementById('send-btn');
+const docNameEl = document.getElementById('doc-name');
+const newDocBtn = document.getElementById('new-doc-btn');
+const errorBanner = document.getElementById('error-banner');
+
+let sessionId = null;
+let polling = null;
+
+function showError(msg) {
+  errorBanner.textContent = msg;
+  errorBanner.classList.add('visible');
+}
+function clearError() {
+  errorBanner.classList.remove('visible');
+}
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) handleUpload(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length) handleUpload(fileInput.files[0]);
+});
+
+async function handleUpload(file) {
+  clearError();
+  if (!file.name.toLowerCase().endsWith('.pdf')) {
+    showError('Only PDF files are supported.');
+    return;
+  }
+  statusLine.classList.add('visible');
+  statusDot.className = 'status-dot busy';
+  statusText.textContent = `Indexing "${file.name}"…`;
+  uploadPanel.style.setProperty('--scan', '10%');
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const res = await fetch('/api/upload', { method: 'POST', body: formData });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Upload failed (${res.status})`);
+    }
+    const data = await res.json();
+    sessionId = data.session_id;
+    docNameEl.textContent = data.filename;
+    pollStatus(file.name);
+  } catch (e) {
+    statusDot.className = 'status-dot';
+    statusText.textContent = '';
+    showError(e.message);
+  }
+}
+
+function pollStatus(filename) {
+  let ticks = 0;
+  polling = setInterval(async () => {
+    ticks++;
+    uploadPanel.style.setProperty('--scan', Math.min(90, 10 + ticks * 8) + '%');
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}`);
+      const data = await res.json();
+      if (data.status === 'ready') {
+        clearInterval(polling);
+        uploadPanel.style.setProperty('--scan', '100%');
+        statusDot.className = 'status-dot ready';
+        statusText.textContent = `"${filename}" indexed and ready.`;
+        setTimeout(() => {
+          chatPanel.classList.add('visible');
+          chatInput.focus();
+        }, 300);
+      } else if (data.status === 'error') {
+        clearInterval(polling);
+        statusDot.className = 'status-dot';
+        statusText.textContent = '';
+        showError(`Indexing failed: ${data.error || 'unknown error'}`);
+      }
+    } catch (e) {
+      clearInterval(polling);
+      showError('Lost connection while indexing. Please retry the upload.');
+    }
+  }, 1200);
+}
+
+newDocBtn.addEventListener('click', () => {
+  chatPanel.classList.remove('visible');
+  messagesEl.innerHTML = '';
+  uploadPanel.style.setProperty('--scan', '0%');
+  statusLine.classList.remove('visible');
+  fileInput.value = '';
+  sessionId = null;
+  clearError();
+});
+
+function addMessage(role, text) {
+  const wrap = document.createElement('div');
+  wrap.className = `msg ${role}`;
+  const roleEl = document.createElement('div');
+  roleEl.className = 'role';
+  roleEl.textContent = role === 'user' ? 'You' : 'Answer';
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'body';
+  wrap.appendChild(roleEl);
+  wrap.appendChild(bodyEl);
+  messagesEl.appendChild(wrap);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  window.scrollTo(0, document.body.scrollHeight);
+  return bodyEl;
+}
+
+function addRetryBox() {
+  const box = document.createElement('div');
+  box.className = 'retry-box';
+  box.innerHTML = `
+    <span>The grounding check flagged this answer as uncertain. Retry the generation?</span>
+    <span>
+      <button data-choice="n">No, keep it</button>
+      <button data-choice="y" class="primary">Retry</button>
+    </span>`;
+  messagesEl.appendChild(box);
+  window.scrollTo(0, document.body.scrollHeight);
+
+  box.querySelectorAll('button').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      box.remove();
+      const retry = btn.dataset.choice === 'y';
+      if (!retry) return;
+      const bodyEl = addMessage('assistant', '');
+      await streamResponse('/api/chat/retry', { session_id: sessionId, retry: true }, bodyEl);
+    });
+  });
+}
+
+async function streamResponse(url, payload, bodyEl) {
+  sendBtn.disabled = true;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok || !res.body) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Request failed (${res.status})`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let idx;
+      while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        const rawEvent = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const lines = rawEvent.split('\n');
+        let event = 'message', data = '';
+        for (const line of lines) {
+          if (line.startsWith('event: ')) event = line.slice(7);
+          if (line.startsWith('data: ')) data = line.slice(6);
+        }
+        if (!data) continue;
+        const parsed = JSON.parse(data);
+        if (event === 'token') {
+          bodyEl.textContent += parsed.text;
+          window.scrollTo(0, document.body.scrollHeight);
+        } else if (event === 'done') {
+          if (parsed.needs_retry_confirmation) addRetryBox();
+        }
+      }
+    }
+  } catch (e) {
+    bodyEl.textContent = bodyEl.textContent || '';
+    showError(e.message);
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+chatForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = chatInput.value.trim();
+  if (!text || !sessionId) return;
+  clearError();
+  chatInput.value = '';
+  addMessage('user', text);
+  const bodyEl = addMessage('assistant', '');
+  await streamResponse('/api/chat', { session_id: sessionId, message: text }, bodyEl);
+});
+
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    chatForm.requestSubmit();
+  }
+});
+</script>
+</body>
+</html>

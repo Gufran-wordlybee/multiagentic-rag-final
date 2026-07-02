@@ -1,0 +1,35 @@
+# --- Web server ---
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+python-multipart==0.0.20
+
+# --- Core config / env ---
+python-dotenv==1.0.1
+PyYAML==6.0.2
+pydantic==2.10.4
+
+# --- LangGraph / LangChain ---
+langgraph==0.2.62
+langchain==0.3.27
+langchain-core==0.3.76
+langchain-community==0.3.29
+langchain-openai==0.3.33
+langchain-groq==0.2.3
+langchain-huggingface==0.1.2
+langchain-text-splitters==0.3.11
+langchain-cohere==0.3.4
+
+# --- Retrieval ---
+chromadb==0.5.23
+rank_bm25==0.2.2
+sentence-transformers==3.3.1
+
+# --- PDF -> Markdown ingestion ---
+# docling-core is pinned explicitly: docling==2.15.1 does not cap its
+# docling-core dependency, so an unpinned install resolves to the latest
+# docling-core (2.8x+), which deleted the legacy_doc.base.BoundingBox class
+# that docling 2.15.1's ds_glm_model.py still imports. That mismatch made
+# every single PDF upload crash with ImportError. 2.14.0 is the version
+# docling 2.15.1 was actually built and tested against.
+docling==2.15.1
+docling-core==2.14.0

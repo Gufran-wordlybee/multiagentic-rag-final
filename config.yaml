@@ -1,0 +1,25 @@
+retriever:
+  # Only used by the CLI (app.py) as a default when no PDF path is passed
+  # as an argument. The web server (server.py) always indexes whatever PDF
+  # the user uploads, into its own session-scoped collection, ignoring
+  # these two fields entirely.
+  file: "retriever/sample.pdf"
+  headers_to_split_on:
+    - ["#", "Header 1"]
+    - ["##", "Header 2"]
+  top_k: 3
+  top_k_compression: 3
+  ensemble_weights: [0.3, 0.3, 0.4]
+  cohere_rerank_model: rerank-english-v3.0
+llm:
+  gpt_4o_mini: gpt-4o-mini-2024-07-18
+  gpt_4o: gpt-4o-2024-08-06
+  groq_model: llama-3.3-70b-versatile
+  temperature: 0
+
+description: |
+  config.yaml holds tunable, non-secret settings (model names, chunk
+  headers, retrieval weights). Secrets (API keys) live in .env instead.
+
+  Per-document/session settings (which PDF, which Chroma collection) are
+  no longer hardcoded here — server.py assigns those per upload at runtime.
